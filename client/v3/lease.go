@@ -435,6 +435,7 @@ func (l *lessor) keepAliveOnce(ctx context.Context, id LeaseID) (karesp *LeaseKe
 	return karesp, nil
 }
 
+// 循环收发心跳包
 func (l *lessor) recvKeepAliveLoop() (gerr error) {
 	defer func() {
 		l.mu.Lock()
@@ -448,8 +449,10 @@ func (l *lessor) recvKeepAliveLoop() (gerr error) {
 	}()
 
 	for {
+		// resetRecv 打开一个新的租约流并开始发送保持活动请求。
 		stream, err := l.resetRecv()
 		if err != nil {
+			// 如果出错，会取消调用
 			l.lg.Warn("error occurred during lease keep alive loop",
 				zap.Error(err),
 			)
@@ -458,6 +461,7 @@ func (l *lessor) recvKeepAliveLoop() (gerr error) {
 			}
 		} else {
 			for {
+				// 从流中接收response
 				resp, err := stream.Recv()
 				if err != nil {
 					if canceledByCaller(l.stopCtx, err) {
@@ -470,6 +474,7 @@ func (l *lessor) recvKeepAliveLoop() (gerr error) {
 					break
 				}
 
+				// 重置下一次发送续约请求的时间
 				l.recvKeepAlive(resp)
 			}
 		}
@@ -482,6 +487,7 @@ func (l *lessor) recvKeepAliveLoop() (gerr error) {
 	}
 }
 
+// resetRecv 打开一个新的租约流并开始发送保持活动请求。
 // resetRecv opens a new lease stream and starts sending keep alive requests.
 func (l *lessor) resetRecv() (pb.Lease_LeaseKeepAliveClient, error) {
 	sctx, cancel := context.WithCancel(l.stopCtx)
@@ -568,6 +574,7 @@ func (l *lessor) deadlineLoop() {
 	}
 }
 
+// sendKeepAliveLoop 在给定流的生命周期内发送保持活动请求。
 // sendKeepAliveLoop sends keep alive requests for the lifetime of the given stream.
 func (l *lessor) sendKeepAliveLoop(stream pb.Lease_LeaseKeepAliveClient) {
 	for {
@@ -576,6 +583,7 @@ func (l *lessor) sendKeepAliveLoop(stream pb.Lease_LeaseKeepAliveClient) {
 		now := time.Now()
 		l.mu.Lock()
 		for id, ka := range l.keepAlives {
+			// 只有达到下一次发送续约请求时间的时候，才会真正构建send进行发送
 			if ka.nextKeepAlive.Before(now) {
 				tosend = append(tosend, id)
 			}
